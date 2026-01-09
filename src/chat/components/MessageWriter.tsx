@@ -1,5 +1,4 @@
-
-import { chatTime } from "../../shared/config/utils";
+import { chatTime } from "@/shared/config/utils";
 
 interface Props {
   showHeader: boolean;

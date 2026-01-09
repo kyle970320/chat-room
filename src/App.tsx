@@ -77,7 +77,7 @@ function App() {
   }
 
   return (
-    <div className="custom-scrollbar flex-1 min-w-0 lg:px-12 max-h-screen overflow-y-auto">
+    <div className="custom-scrollbar flex-1 min-w-0 h-screen overflow-y-auto">
       <ChatPage />
     </div>
   );

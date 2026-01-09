@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Wifi, WifiOff } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
-import { AVATAR_LIST } from "./config/emoji";
 import type {
   ChatMessage,
+  FavoriteReaction,
+  LastReadMessageType,
+  ReactedUserNamesMap,
   ReactedUsersMap,
   ReactionMap,
 } from "./types/message";
 import { ROOM_ID } from "./config/room";
-import MessageRenderer from "./components/MessageRenderer";
 import MessageBottomBar from "./components/MessageBottomBar";
+import { useSettingChat } from "./hooks/useSettingChat";
+import MessageContainer from "./components/MessageContainer";
+import MessageHeader from "./components/MessageHeader";
+import type { CanvasRoomSummary, ChatRoomUser } from "./types/canvas";
 
 function normalizeMessage(m: ChatMessage): ChatMessage {
   return {
@@ -20,30 +24,139 @@ function normalizeMessage(m: ChatMessage): ChatMessage {
 }
 
 export default function ChatPage() {
+  const { chatSide, chatScreen } = useSettingChat();
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState<number | null>(null);
   const [myAvatar, setMyAvatar] = useState("🙂");
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState<number | null>(null);
+  const [userIp, setUserIp] = useState<string>("");
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOpenEmojiPanel, setIsOpenEmojiPanel] = useState<boolean>(false);
+  const [emojiValue, setEmojiValue] = useState<string>("");
+  const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
+  const [favoriteReactions, setFavoriteReactions] = useState<
+    Array<FavoriteReaction>
+  >([]);
 
+  // pagination states
+  const PAGE_SIZE = 50;
+  const [initialReady, setInitialReady] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingMoreRef = useRef(false);
+
+  // message store
   const [messageOrder, setMessageOrder] = useState<number[]>([]);
   const [messagesById, setMessagesById] = useState<Record<number, ChatMessage>>(
     {},
   );
+
+  // canvas
+  const [canvasRooms, setCanvasRooms] = useState<Array<CanvasRoomSummary>>([]);
+  const [users, setUsers] = useState<Array<ChatRoomUser>>([]);
+
+  const [readStateByUserId, setReadStateByUserId] = useState<
+    Record<number, LastReadMessageType>
+  >({});
+
   const messages = useMemo<Array<ChatMessage>>(() => {
     return messageOrder.map((id) => messagesById[id]).filter(Boolean);
   }, [messageOrder, messagesById]);
+
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const initialScrolledRef = useRef(false);
+  const prevHeightRef = useRef<number | null>(null);
 
-  const handleAvatarPicker = (value: boolean) => {
-    setShowAvatarPicker(value);
-  };
+  const handleAvatarPicker = (value: boolean) => setShowAvatarPicker(value);
+  const handleMyAvatar = (value: string) => setMyAvatar(value);
+  const handleEmojiPicker = (value: number | null) => setShowEmojiPicker(value);
+  const handleEmojiPanel = (value: boolean) => setIsOpenEmojiPanel(value);
+  const handleEmojiValue = (value: string) => setEmojiValue(value);
+  const handleSetReply = (value: ChatMessage | null) => setReplyMessage(value);
 
+  const scrollToBottomNow = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight; // 가장 확실
+  }, []);
+
+  const mergeMessages = useCallback(
+    (listRaw: ChatMessage[], mode: "append" | "prepend") => {
+      const list = (listRaw ?? []).map(normalizeMessage);
+      if (list.length === 0) return;
+
+      setMessagesById((prev) => {
+        const next = { ...prev };
+        for (const m of list) next[m.id] = m;
+        return next;
+      });
+
+      setMessageOrder((prev) => {
+        const set = new Set(prev);
+        const incomingIds = list.map((m) => m.id).filter((id) => !set.has(id));
+        if (incomingIds.length === 0) return prev;
+
+        // ✅ prepend = older messages (top)
+        return mode === "prepend"
+          ? [...incomingIds, ...prev]
+          : [...prev, ...incomingIds];
+      });
+    },
+    [],
+  );
+
+  const getOldestTs = useCallback(() => {
+    const firstId = messageOrder[0];
+    if (!firstId) return null;
+    const m = messagesById[firstId];
+    return m?.ts ?? null;
+  }, [messageOrder, messagesById]);
+
+  // -------------------------
+  // reactedUsers -> reactedUserNames
+  // -------------------------
+  const userIdToName = useMemo(() => {
+    const map = new Map<number, string>();
+
+    for (const m of messages) {
+      if (typeof m.userId === "number" && m.name) {
+        map.set(m.userId, m.name);
+      }
+    }
+
+    if (userId != null && username) {
+      map.set(userId, username);
+    }
+
+    return map;
+  }, [messages, userId, username]);
+
+  const viewMessages = useMemo(() => {
+    return messages.map((m) => {
+      const reactedUsers = m.reactedUsers ?? {};
+      const reactedUserNames: ReactedUserNamesMap = {};
+
+      for (const [emoji, ids] of Object.entries(reactedUsers)) {
+        reactedUserNames[emoji] = (ids ?? [])
+          .map((id) => userIdToName.get(id) ?? `User#${id}`)
+          .filter(Boolean);
+      }
+
+      return {
+        ...m,
+        reactedUserNames,
+      };
+    });
+  }, [messages, userIdToName]);
+
+  // -------------------------
+  // socket connect
+  // -------------------------
   useEffect(() => {
-    const SOCKET_URL = "http://192.168.0.92:8081";
+    const SOCKET_URL = "https://biosocial-extraversively-deacon.ngrok-free.dev";
 
     const socket = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
@@ -57,6 +170,9 @@ export default function ChatPage() {
     socket.on("connect", () => {
       setIsConnected(true);
       socket.emit("join", { roomId: ROOM_ID });
+
+      // ✅ 최신 N개 요청(서버가 지원한다고 가정)
+      socket.emit("history:latest", { roomId: ROOM_ID, limit: PAGE_SIZE });
     });
 
     socket.on("disconnect", () => {
@@ -71,38 +187,63 @@ export default function ChatPage() {
 
     socket.on(
       "me",
-      (me: { id: number; name: string; avatarUrl?: string | null }) => {
+      (me: {
+        id: number;
+        name: string;
+        key: string;
+        avatarUrl?: string | null;
+      }) => {
         setUserId(me.id);
         setUsername(me.name ?? "");
+        setUserIp(me.key);
         setMyAvatar(me.avatarUrl || "🙂");
         setIsLoading(false);
       },
     );
 
-    // ✅ history: 한번에 Map 구조로 세팅
-    socket.on("history", (data: ChatMessage[]) => {
-      const list = (data ?? []).map(normalizeMessage);
+    // -------------------------
+    // ✅ history handlers (NO RESET)
+    // -------------------------
 
-      setMessagesById(() => {
-        const next: Record<number, ChatMessage> = {};
-        for (const m of list) next[m.id] = m;
-        return next;
-      });
+    // 서버가 "history:latest"를 지원하는 경우
+    socket.on("history:latest", (data: ChatMessage[]) => {
+      mergeMessages(data ?? [], "append");
+      if (!data || data.length < PAGE_SIZE) setHasMore(false);
 
-      setMessageOrder(() => list.map((m) => m.id));
+      if (!initialScrolledRef.current) {
+        initialScrolledRef.current = true;
+
+        // ✅ 2프레임 대기 후 scrollHeight가 확정되었을 때 바닥으로
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            scrollToBottomNow();
+            setInitialReady(true); // ✅ 여기서부터 화면 보여줌
+          });
+        });
+      }
     });
 
-    // ✅ message: 새 메시지 1개만 추가
+    socket.on("history:before", (data: ChatMessage[]) => {
+      const el = scrollContainerRef.current;
+
+      mergeMessages(data ?? [], "prepend");
+      loadingMoreRef.current = false;
+
+      if (!data || data.length < PAGE_SIZE) setHasMore(false);
+
+      if (el && prevHeightRef.current != null) {
+        requestAnimationFrame(() => {
+          prevHeightRef.current = null;
+        });
+      }
+    });
+    // message: 새 메시지 1개만 추가
     socket.on("message", (data: ChatMessage) => {
       const m = normalizeMessage(data);
 
-      setMessagesById((prev) => {
-        // 같은 id가 오면 덮어쓰기
-        return { ...prev, [m.id]: m };
-      });
+      setMessagesById((prev) => ({ ...prev, [m.id]: m }));
 
       setMessageOrder((prev) => {
-        // 중복 방지
         if (prev[prev.length - 1] === m.id) return prev;
         if (prev.includes(m.id)) return prev;
         return [...prev, m.id];
@@ -119,10 +260,81 @@ export default function ChatPage() {
       setMessageOrder((prev) => prev.filter((id) => id !== messageId));
     });
 
-    /**
-     * ✅ reaction:update: "전체 messages.map" 제거
-     * -> 해당 messageId 하나만 교체
-     */
+    // read:state
+    socket.on(
+      "read:state",
+      (payload: {
+        roomId: string;
+        readState: Array<{
+          userId: number;
+          lastReadMessageId: number | null;
+          lastReadAt: number | null;
+          name: string;
+          avatarUrl: string | null;
+        }>;
+      }) => {
+        if (payload.roomId !== ROOM_ID) return;
+
+        setReadStateByUserId(() => {
+          const next: Record<number, LastReadMessageType> = {};
+          for (const r of payload.readState ?? []) {
+            next[r.userId] = {
+              name: r.name ?? null,
+              lastReadMessageId: r.lastReadMessageId ?? null,
+              lastReadAt: r.lastReadAt ?? null,
+            };
+          }
+          return next;
+        });
+      },
+    );
+
+    // read:update
+    socket.on(
+      "read:update",
+      (payload: {
+        roomId: string;
+        userId: number;
+        name: string | null;
+        lastReadMessageId: number | null;
+        lastReadAt: number | null;
+      }) => {
+        if (payload.roomId !== ROOM_ID) return;
+
+        setReadStateByUserId((prev) => {
+          const prevRow = prev[payload.userId];
+          const prevId = prevRow?.lastReadMessageId ?? null;
+          const nextId = payload.lastReadMessageId ?? null;
+
+          const mergedId =
+            prevId == null
+              ? nextId
+              : nextId == null
+                ? prevId
+                : Math.max(prevId, nextId);
+
+          const prevAt = prevRow?.lastReadAt ?? null;
+          const nextAt = payload.lastReadAt ?? null;
+          const mergedAt =
+            prevAt == null
+              ? nextAt
+              : nextAt == null
+                ? prevAt
+                : Math.max(prevAt, nextAt);
+
+          return {
+            ...prev,
+            [payload.userId]: {
+              name: prevRow?.name ?? null,
+              lastReadMessageId: mergedId,
+              lastReadAt: mergedAt,
+            },
+          };
+        });
+      },
+    );
+
+    // reaction:update
     socket.on(
       "reaction:update",
       (payload: {
@@ -131,12 +343,10 @@ export default function ChatPage() {
         reactedUsers: ReactedUsersMap;
       }) => {
         const { messageId, reactions, reactedUsers } = payload;
-
         setMessagesById((prev) => {
           const target = prev[messageId];
           if (!target) return prev;
 
-          // ✅ 다른 메시지 레퍼런스 유지 + target만 교체
           return {
             ...prev,
             [messageId]: {
@@ -149,12 +359,73 @@ export default function ChatPage() {
       },
     );
 
+    socket.on(
+      "favoriteReactions",
+      (payload: { userId: number; top: Array<FavoriteReaction> }) => {
+        setFavoriteReactions(payload.top ?? []);
+      },
+    );
+    socket.emit("favoriteReactions:get", { limit: 4 });
+
+    socket.emit("canvas:room:list");
+
+    socket.on(
+      "canvas:room:list",
+      (payload: { rooms: Array<CanvasRoomSummary> }) => {
+        setCanvasRooms(payload.rooms);
+        setIsLoading(false);
+      },
+    );
+
+    socket.on(
+      "canvas:room:list:update",
+      (payload: { room: CanvasRoomSummary }) => {
+        const { room } = payload;
+        setCanvasRooms((prev) => {
+          return [...prev, room];
+        });
+      },
+    );
+
+    socket.on(
+      "chat:room:users",
+      (payload: { roomId: string; users: ChatRoomUser[] }) => {
+        // 다른 roomId 이벤트 섞이는 거 방지
+        setUsers(payload.users ?? []);
+      },
+    );
+
+    socket.emit("chat:room:users", { roomId: ROOM_ID });
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [mergeMessages]);
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    const s = socketRef.current;
+    if (!el || !s) return;
+
+    const TOP_THRESHOLD_PX = 80;
+
+    const onScroll = () => {
+      if (!hasMore) return;
+      if (loadingMoreRef.current) return;
+      if (el.scrollTop > TOP_THRESHOLD_PX) return;
+
+      const beforeTs = getOldestTs();
+      if (!beforeTs) return;
+
+      prevHeightRef.current = el.scrollHeight;
+      loadingMoreRef.current = true;
+      s.emit("history:before", { roomId: ROOM_ID, beforeTs, limit: PAGE_SIZE });
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [hasMore, getOldestTs]);
 
   if (isLoading) {
     return (
@@ -169,109 +440,56 @@ export default function ChatPage() {
 
   return (
     <div
-      className="flex flex-col h-[calc(100vh-48px)] my-6 max-w-2xl mx-auto bg-gray-50 border border-gray-300"
+      className="flex flex-col h-[calc(100vh-60px)] w-full mx-auto bg-white lg:h-full"
       onClick={() => {
         handleAvatarPicker(false);
+        handleEmojiPanel(false);
+        handleEmojiValue("");
+        handleEmojiPicker(null);
       }}
     >
-      <div className="bg-blue-600 text-white p-4 shadow-md flex items-center justify-between">
-        <div>
-          <p className="text-xl font-bold">채팅방</p>
-          <div className="flex items-center gap-2 text-sm opacity-90">
-            {isConnected ? (
-              <>
-                <Wifi className="w-4 h-4" />
-                <span>연결됨</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-4 h-4" />
-                <span>오프라인 모드</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">{username}</span>
-
-          <div className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowAvatarPicker(!showAvatarPicker);
-              }}
-              className="w-12 h-12 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center text-2xl transition-colors cursor-pointer"
-            >
-              {myAvatar}
-            </button>
-
-            {showAvatarPicker && (
-              <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-xl p-1 z-20 w-70">
-                <p className="text-gray-700 text-sm font-semibold mb-2">
-                  프로필 선택
-                </p>
-
-                <div className="grid grid-cols-8 gap-1">
-                  {AVATAR_LIST.map((avatar) => (
-                    <button
-                      key={avatar}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMyAvatar(avatar);
-                        setShowAvatarPicker(false);
-                        if (socketRef.current && isConnected) {
-                          socketRef.current.emit("me:update", {
-                            avatarUrl: avatar,
-                          });
-                        }
-                      }}
-                      className={`flex justify-center text-xl hover:bg-gray-100 rounded p-1 transition-colors cursor-pointer ${
-                        myAvatar === avatar
-                          ? "bg-blue-100 ring-2 ring-blue-500"
-                          : ""
-                      }`}
-                    >
-                      {avatar}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto hide-scrollbar p-4"
-      >
-        {!isConnected && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <div className="text-6xl mb-4">💤</div>
-            <p className="text-lg">서버가 자고있어요</p>
-          </div>
-        )}
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <div className="text-6xl mb-4">💬</div>
-            <p className="text-lg">채팅을 시작해주세요</p>
-          </div>
-        ) : (
-          <MessageRenderer
-            messages={messages}
-            userId={userId}
-            isConnected={isConnected}
-            socket={socketRef}
-            messagesEndRef={messagesEndRef}
-            scrollContainerRef={scrollContainerRef}
-          />
-        )}
-      </div>
-
-      <MessageBottomBar
+      <MessageHeader
         socket={socketRef}
         isConnected={isConnected}
+        userIp={userIp}
+        username={username}
+        myAvatar={myAvatar}
+        showAvatarPicker={showAvatarPicker}
+        handleMyAvatar={handleMyAvatar}
+        handleAvatarPicker={handleAvatarPicker}
+      />
+      <MessageContainer
+        initialReady={initialReady}
+        chatSide={chatSide}
+        chatScreen={chatScreen}
+        messages={viewMessages}
+        userId={userId}
+        isConnected={isConnected}
+        socket={socketRef}
+        readStateByUserId={readStateByUserId}
+        favoriteReactions={favoriteReactions}
+        showEmojiPicker={showEmojiPicker}
+        handleEmojiPicker={handleEmojiPicker}
         messagesEndRef={messagesEndRef}
+        scrollContainerRef={scrollContainerRef}
+        handleSetReply={handleSetReply}
+        canvasRooms={canvasRooms}
+        users={users}
+      />
+
+      <MessageBottomBar
+        chatScreen={chatScreen}
+        socket={socketRef}
+        isConnected={isConnected}
+        emojiValue={emojiValue}
+        isOpenEmojiPanel={isOpenEmojiPanel}
+        favoriteReactions={favoriteReactions}
+        replyMessage={replyMessage}
+        messagesEndRef={messagesEndRef}
+        scrollContainerRef={scrollContainerRef}
+        handleEmojiPanel={handleEmojiPanel}
+        handleEmojiValue={handleEmojiValue}
+        handleSetReply={handleSetReply}
       />
     </div>
   );

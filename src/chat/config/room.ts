@@ -1,1 +1,1 @@
-export const ROOM_ID = "room2";
+export const ROOM_ID = "room1";

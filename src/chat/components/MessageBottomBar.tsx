@@ -1,19 +1,52 @@
-import { useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { ROOM_ID } from "../config/room";
 import type { Socket } from "socket.io-client";
-import { ArrowBigDown, Laugh, Send } from "lucide-react";
+import { ArrowBigDown, Laugh, Send, X } from "lucide-react";
 import EmojiSwich from "./EmojiSwitch";
+import type {
+  ChatMessage,
+  ChatScreenType,
+  FavoriteReaction,
+} from "../types/message";
+import { cn } from "@/lib/utils";
+import { chatFullTime } from "@/shared/config/utils";
+import { scrollToBottom } from "../utils/text";
 
 interface Props {
+  chatScreen: ChatScreenType;
   isConnected: boolean;
   socket: RefObject<Socket | null>;
+  emojiValue: string;
+  isOpenEmojiPanel: boolean;
+  favoriteReactions: Array<FavoriteReaction>;
+  replyMessage: ChatMessage | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
+  handleEmojiValue: (value: string) => void;
+  handleEmojiPanel: (value: boolean) => void;
+  handleSetReply: (value: ChatMessage | null) => void;
 }
 export default function MessageBottomBar(props: Props) {
-  const { socket, isConnected, messagesEndRef } = props;
+  const {
+    socket,
+    isConnected,
+    chatScreen,
+    emojiValue,
+    isOpenEmojiPanel,
+    favoriteReactions,
+    replyMessage,
+    messagesEndRef,
+    scrollContainerRef,
+    handleEmojiValue,
+    handleEmojiPanel,
+    handleSetReply,
+  } = props;
   const [inputText, setInputText] = useState("");
-  const [isOpenEmojiPanel, setIsOpenEmojiPanel] = useState<boolean>(false);
-  const [emojiValue, setEmojiValue] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const bottomBarClass = cn(
+    "flex gap-2 mx-auto transition-[width] duration-400",
+    chatScreen === "wide" ? "lg:w-full" : "lg:w-[60%]",
+  );
   const handleSend = () => {
     const text = emojiValue + inputText.trim();
     if (!text) return;
@@ -22,17 +55,23 @@ export default function MessageBottomBar(props: Props) {
       socket.current.emit("send", {
         roomId: ROOM_ID,
         text,
+        replyToMessageId: replyMessage?.id ?? null,
+        type: "text",
       });
       setInputText("");
     }
-    setIsOpenEmojiPanel(false);
-    setEmojiValue("");
+    setTimeout(() => {
+      scrollToBottom(scrollContainerRef, true);
+    }, 10);
+    handleEmojiPanel(false);
+    handleEmojiValue("");
+    handleSetReply(null);
   };
   const handleClickEmoji = (el: string) => {
-    setEmojiValue(el);
+    handleEmojiValue(el);
   };
   const handleClickEmojiPanel = (value: boolean) => {
-    setIsOpenEmojiPanel(value);
+    handleEmojiPanel(value);
   };
   const handleBottomArrow = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -48,19 +87,54 @@ export default function MessageBottomBar(props: Props) {
       setInputText("");
     }
   };
+
+  useEffect(() => {
+    if (replyMessage) {
+      inputRef.current?.focus();
+    }
+  }, [replyMessage]);
+
   return (
     <div className="relative p-4 bg-white border-t">
-      <EmojiSwich
-        isOpenEmojiPanel={isOpenEmojiPanel}
-        emojiValue={emojiValue}
-        handleClickEmoji={handleClickEmoji}
-        handleClickEmojiPanel={handleClickEmojiPanel}
-      />
-      <div className="flex gap-2">
+      {isOpenEmojiPanel && (
+        <EmojiSwich
+          emojiValue={emojiValue}
+          favoriteReactions={favoriteReactions}
+          handleClickEmoji={handleClickEmoji}
+          handleClickEmojiPanel={handleClickEmojiPanel}
+        />
+      )}
+      {replyMessage && (
+        <div className="absolute left-1/2 -translate-x-1/2 pt-2.5 px-5 hide-scrollbar overflow-y-scroll min-h-20 max-w-md bottom-full w-full bg-blue-400 text-white rounded-t-2xl">
+          <div className="flex items-center">
+            <p className="text-base font-bold">{replyMessage.name}</p>
+            <p className="text-sm ml-2">{chatFullTime(replyMessage.ts)}</p>
+            <button
+              className="absolute right-2 top-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClickEmojiPanel(false);
+                handleClickEmoji("");
+                handleSetReply(null);
+              }}
+            >
+              <X className="w-6 h-6 cursor-pointer" />
+            </button>
+          </div>
+          <div className="py-3 text-base wrap-break-word font-semibold">
+            {replyMessage.text}
+          </div>
+        </div>
+      )}
+      <div className={bottomBarClass}>
         <input
-          maxLength={50}
+          ref={inputRef}
+          maxLength={100}
           type="text"
           value={inputText}
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={
@@ -72,7 +146,8 @@ export default function MessageBottomBar(props: Props) {
           className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
         />
         <button
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             handleClickEmojiPanel(!isOpenEmojiPanel);
             handleClickEmoji("");
           }}

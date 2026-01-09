@@ -12,3 +12,8 @@ export const chatTime = (timestamp: string) => {
   const date = new Date(timestamp);
   return dayjs(date).format("HH:MM");
 };
+
+export const chatFullTime = (timestamp: string) => {
+  const date = new Date(timestamp);
+  return dayjs(date).format("YYYY-MM-DD HH:MM");
+};

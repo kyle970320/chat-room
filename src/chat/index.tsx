@@ -46,6 +46,8 @@ export default function ChatPage() {
   const [hasMore, setHasMore] = useState(true);
   const loadingMoreRef = useRef(false);
 
+
+  
   // message store
   const [messageOrder, setMessageOrder] = useState<number[]>([]);
   const [messagesById, setMessagesById] = useState<Record<number, ChatMessage>>(

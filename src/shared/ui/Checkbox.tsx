@@ -3,10 +3,10 @@ import { forwardRef, useId, useRef, type ReactNode } from "react";
 // lib
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 
-import { Checkbox as BaseCheckbox } from "@/shared/ui/base/checkbox";
+import { Checkbox as BaseCheckbox } from "../../shared/ui/base/checkbox";
 
 // variants
-import { cn } from "@/shared/lib/variants";
+import { cn } from "../../shared/lib/variants";
 
 interface CheckBoxProps extends React.ComponentProps<
   typeof CheckboxPrimitive.Root

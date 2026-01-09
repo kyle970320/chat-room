@@ -4,7 +4,7 @@ import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
 // variants
-import { cn } from "@/shared/lib/variants";
+import { cn } from "../../lib/variants";
 
 function TooltipProvider({
   delayDuration = 0,

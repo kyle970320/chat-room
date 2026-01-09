@@ -1,8 +1,8 @@
 import { type ReactNode, forwardRef, useId, useRef } from "react";
 
 // variants
-import { cn } from "@/shared/lib/variants";
-import { RadioGroupItem } from "@/shared/ui/base/radio-group";
+import { cn } from "../../shared/lib/variants";
+import { RadioGroupItem } from "../../shared/ui/base/radio-group";
 // lib
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 

@@ -1,4 +1,4 @@
-import { cn } from "@/shared/lib/variants";
+import { cn } from "../../lib/variants";
 
 function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
   return (

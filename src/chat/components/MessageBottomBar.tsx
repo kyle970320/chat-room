@@ -8,8 +8,8 @@ import type {
   ChatScreenType,
   FavoriteReaction,
 } from "../types/message";
-import { cn } from "@/lib/utils";
-import { chatFullTime } from "@/shared/config/utils";
+import { cn } from "../../lib/utils";
+import { chatFullTime } from "../../shared/config/utils";
 import { scrollToBottom } from "../utils/text";
 
 interface Props {

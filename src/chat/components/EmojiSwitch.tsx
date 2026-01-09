@@ -3,7 +3,7 @@ import { EMOJI_LIST } from "../config/emoji";
 import { useEffect, useMemo, useState } from "react";
 import type { FavoriteReaction } from "../types/message";
 import { getRandomEmoji } from "../utils/text";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 interface Props {
   emojiValue: string;

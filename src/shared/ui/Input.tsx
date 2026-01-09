@@ -1,10 +1,10 @@
 import { forwardRef, type ReactNode, useId, useState } from "react";
 
 // base
-import { Input as InputPrimitive } from "@/shared/ui/base/input";
+import { Input as InputPrimitive } from "../../shared/ui/base/input";
 
 // lib
-import { cn } from "@/shared/lib/variants";
+import { cn } from "../../shared/lib/variants";
 
 // icon
 import { Eye, EyeOff } from "lucide-react";

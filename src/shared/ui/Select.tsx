@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 
-import { cn } from "@/shared/lib/variants";
+import { cn } from "../../shared/lib/variants";
 import {
   Select as SelectPrimitive,
   SelectContent,
@@ -10,9 +10,9 @@ import {
   SelectSeparator,
   SelectTrigger,
   SelectValue,
-} from "@/shared/ui/base/select";
+} from "../../shared/ui/base/select";
 
-import type { SelectOptionType } from "@/shared/type";
+import type { SelectOptionType } from "../../shared/type";
 
 interface SelectOption extends SelectOptionType {
   disabled?: boolean;

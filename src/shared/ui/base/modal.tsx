@@ -1,6 +1,6 @@
 import React, { forwardRef, useEffect, type ReactNode } from "react";
 
-import { cn } from "@/shared/lib/variants";
+import { cn } from "../../lib/variants";
 
 // Modal Props
 interface ModalProps {

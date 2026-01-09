@@ -7,7 +7,7 @@ import type {
   LastReadMessageType,
 } from "../types/message";
 import type { Socket } from "socket.io-client";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 import MessageRenderer from "./MessageRenderer";
 import DrawingCanvas from "./drawing/DrawingCanvas";
 import { MailPlus, Plus } from "lucide-react";
